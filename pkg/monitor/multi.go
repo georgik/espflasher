@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -160,7 +161,7 @@ func (m *MultiMonitor) printToOutput(msg string) {
 	if !m.config.NoColor {
 		reset = ColorReset
 	}
-	fmt.Printf("%s%s%s\n", color, msg, reset)
+	fmt.Printf("%s%s%s\r\n", color, msg, reset)
 }
 
 // Run starts the monitor. If resetFirst is true, resets devices before monitoring.
@@ -226,8 +227,24 @@ func (m *MultiMonitor) Run(resetFirst bool) error {
 	startTime := time.Now()
 	totalPacketCount := 0
 
+	// Buffer for stdin (single byte for CTRL key detection)
+	stdinBuf := make([]byte, 1)
+
 	// Main loop
 	for {
+		// Non-blocking read from stdin for CTRL+C detection
+		os.Stdin.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
+		n, _ := os.Stdin.Read(stdinBuf)
+		if n > 0 {
+			c := stdinBuf[0]
+			// CTRL+C = 3 (0x03)
+			if c == 3 {
+				fmt.Println("\r\nExiting monitor...")
+				return nil
+			}
+		}
+
+		// Process any pending log entries with timeout
 		select {
 		case <-m.ctx.Done():
 			return nil
@@ -271,7 +288,7 @@ func (m *MultiMonitor) Run(resetFirst bool) error {
 				}
 			}
 
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(50 * time.Millisecond):
 			// Check for timeout exit condition
 			if m.config.ExitCondition != nil && m.config.ExitCondition.Timeout > 0 {
 				elapsed := time.Since(startTime)
@@ -305,9 +322,19 @@ func (m *MultiMonitor) readPort(sp serialPort) {
 		}
 
 		if n > 0 {
-			// Process buffer line by line
-			for _, b := range buf[:n] {
-				if b == '\n' {
+			// Process buffer byte by byte
+			for i := 0; i < n; i++ {
+				b := buf[i]
+
+				if b == '\r' {
+					// Check if followed by \n (CRLF line ending)
+					if i+1 < n && buf[i+1] == '\n' {
+						continue // Skip \r, let \n handle line end
+					}
+					// Standalone \r: clear buffer (in-place update)
+					lineBuf = lineBuf[:0]
+				} else if b == '\n' {
+					// Line end: send and clear
 					line := string(lineBuf)
 					if len(line) > 0 {
 						entry := ParseLogEntry(sp.info.Name, line)
@@ -315,7 +342,7 @@ func (m *MultiMonitor) readPort(sp serialPort) {
 						m.entryChan <- entry
 					}
 					lineBuf = lineBuf[:0]
-				} else if b != '\r' {
+				} else {
 					lineBuf = append(lineBuf, b)
 				}
 			}
@@ -372,38 +399,42 @@ func (m *MultiMonitor) printEntry(entry LogEntry) {
 		timestamp = entry.Timestamp.Format("15:04:05.000 ")
 	}
 
-	fmt.Printf("%s%s%s%s%s\n", color, timestamp, prefix, reset, entry.Raw)
+	// Strip any remaining \r from output (they mess up terminal)
+	cleanRaw := strings.ReplaceAll(entry.Raw, "\r", "")
+
+	fmt.Printf("%s%s%s%s%s\r\n", color, timestamp, prefix, reset, cleanRaw)
+	os.Stdout.Sync()
 }
 
 // printHeader prints the monitor header.
 func (m *MultiMonitor) printHeader() {
-	fmt.Println("Multi-Port Serial Monitor")
-	fmt.Println("-------------------------")
+	fmt.Printf("Multi-Port Serial Monitor\r\n")
+	fmt.Printf("-------------------------\r\n")
 	for i, sp := range m.ports {
-		fmt.Printf("  Port %d: %s @ %d baud (%s)\n",
+		fmt.Printf("  Port %d: %s @ %d baud (%s)\r\n",
 			i, sp.info.Name, m.config.BaudRate, sp.info.Label)
 	}
 	if m.config.ExitCondition != nil {
 		if m.config.ExitCondition.Pattern != "" {
-			fmt.Printf("  Exit on pattern: %s\n", m.config.ExitCondition.Pattern)
+			fmt.Printf("  Exit on pattern: %s\r\n", m.config.ExitCondition.Pattern)
 		}
 		if m.config.ExitCondition.Timeout > 0 {
-			fmt.Printf("  Timeout: %s\n", m.config.ExitCondition.Timeout)
+			fmt.Printf("  Timeout: %s\r\n", m.config.ExitCondition.Timeout)
 		}
 		if m.config.ExitCondition.Packets > 0 {
-			fmt.Printf("  Exit after %d packets\n", m.config.ExitCondition.Packets)
+			fmt.Printf("  Exit after %d packets\r\n", m.config.ExitCondition.Packets)
 		}
 	}
-	fmt.Println("CTRL+C to exit")
-	fmt.Println("---")
+	fmt.Printf("CTRL+C to exit\r\n")
+	fmt.Printf("---\r\n")
 }
 
 // printSummary prints the monitoring summary.
 func (m *MultiMonitor) printSummary(startTime time.Time, totalPackets int) {
 	elapsed := time.Since(startTime)
-	fmt.Println("\r\n--- Summary ---")
-	fmt.Printf("Duration: %s\n", elapsed.Round(time.Millisecond))
-	fmt.Printf("Total packet-related logs: %d\n", totalPackets)
+	fmt.Printf("\r\n--- Summary ---\r\n")
+	fmt.Printf("Duration: %s\r\n", elapsed.Round(time.Millisecond))
+	fmt.Printf("Total packet-related logs: %d\r\n", totalPackets)
 
 	m.mu.Lock()
 	for name, stats := range m.stats {
@@ -414,7 +445,7 @@ func (m *MultiMonitor) printSummary(startTime time.Time, totalPackets int) {
 				break
 			}
 		}
-		fmt.Printf("  %s: %d lines, %d sent, %d recv, %d errors\n",
+		fmt.Printf("  %s: %d lines, %d sent, %d recv, %d errors\r\n",
 			label, stats.LinesReceived, stats.PacketsSent, stats.PacketsRecv, stats.Errors)
 	}
 	m.mu.Unlock()
