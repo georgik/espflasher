@@ -25,6 +25,8 @@ import (
 func main() {
 	port := flag.String("port", "", "Serial port (e.g. /dev/ttyUSB0, COM3)")
 	baud := flag.Int("baud", 460800, "Flash baud rate")
+	monitorBaud := flag.Int("monitor-baud", 115200, "Baud rate for monitor mode")
+	monitorMode := flag.Bool("monitor", false, "Enter serial monitor mode after flashing (or standalone)")
 	offset := flag.String("offset", "0x0", "Flash offset for single binary mode")
 	chip := flag.String("chip", "auto", "Chip type: auto, esp8266, esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32h2, esp32p4-rev1")
 	noCompress := flag.Bool("no-compress", false, "Disable compression")
@@ -77,9 +79,27 @@ func main() {
 	// Determine mode
 	multiImage := *bootloader != "" || *partitions != "" || *app != ""
 	singleImage := flag.NArg() > 0
+	monitorOnly := *monitorMode && !multiImage && !singleImage
+
+	// Monitor-only mode: just open monitor without flashing
+	if monitorOnly {
+		// Create a minimal flasher just for reset functionality
+		opts := espflasher.DefaultOptions()
+		opts.ChipType = parseChipType(*chip)
+		flasher, err := espflasher.New(*port, opts)
+		if err != nil {
+			log.Fatalf("Failed to connect: %v", err)
+		}
+		defer flasher.Close()
+
+		if err := runMonitor(*port, *monitorBaud, flasher); err != nil {
+			log.Fatalf("Monitor error: %v", err)
+		}
+		return
+	}
 
 	if !multiImage && !singleImage {
-		fmt.Fprintln(os.Stderr, "Error: provide a firmware .bin file or use -bootloader/-partitions/-app flags")
+		fmt.Fprintln(os.Stderr, "Error: provide a firmware .bin file, or use -monitor for monitor-only mode")
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -190,6 +210,15 @@ func main() {
 		if err := flasher.FlashImages(images, progress); err != nil {
 			log.Fatalf("Flash failed: %v", err)
 		}
+	}
+
+	// Handle monitor mode
+	if *monitorMode {
+		fmt.Println("Entering monitor mode...")
+		if err := runMonitor(*port, *monitorBaud, flasher); err != nil {
+			log.Fatalf("Monitor error: %v", err)
+		}
+		return
 	}
 
 	fmt.Println("Resetting device...")

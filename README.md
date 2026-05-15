@@ -49,6 +49,95 @@ espflasher -port /dev/ttyUSB0 \
 
 # Erase flash before writing
 espflasher -port /dev/ttyUSB0 -erase-all firmware.bin
+
+# Serial monitor mode
+espflasher -port /dev/ttyUSB0 -monitor
+
+# Flash and monitor
+espflasher -port /dev/ttyUSB0 firmware.bin -monitor
+```
+
+### Multi-Port Monitor
+
+The `multi-monitor` tool provides simultaneous monitoring of multiple serial ports with pattern matching and validation. This is useful for testing communication between multiple devices, debugging wireless protocols, or analyzing distributed system behavior.
+
+```bash
+# Build the multi-monitor tool
+cd cmd/multi-monitor && go build -o multi-monitor .
+
+# Monitor two devices with colored output
+./multi-monitor -p /dev/ttyUSB0,/dev/ttyUSB1
+
+# Use custom labels for each device
+./multi-monitor -p DEVICE_A:/dev/ttyUSB0,DEVICE_B:/dev/ttyUSB1
+
+# Reset devices before monitoring (captures boot logs)
+./multi-monitor -p /dev/ttyUSB0,/dev/ttyUSB1 -reset
+
+# Exit when specific pattern appears in output
+./multi-monitor -p /dev/ttyUSB0,/dev/ttyUSB1 -exit-on "READY"
+
+# Exit after timeout or N matching log lines
+./multi-monitor -p /dev/ttyUSB0,/dev/ttyUSB1 -timeout 30s
+./multi-monitor -p /dev/ttyUSB0,/dev/ttyUSB1 -packets 100
+
+# Validation mode - analyze communication patterns
+./multi-monitor -p /dev/ttyUSB0,/dev/ttyUSB1 -validate
+```
+
+#### Multi-Monitor Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--ports` | `-p` | Comma-separated list of serial ports (required) |
+| `--baud` | `-b` | Baud rate (default: 115200) |
+| `--exit-on` | `-e` | Exit when pattern is found in logs |
+| `--timeout` | `-t` | Exit after duration (e.g., 30s, 5m) |
+| `--packets` | `-n` | Exit after N packet-related logs |
+| `--validate` | `-v` | Enable validation mode |
+| `--no-color` | `-c` | Disable colored output |
+| `--no-timestamps` | `-T` | Hide timestamps |
+| `--reset` | `-r` | Reset devices before monitoring |
+| `--version` | `-V` | Show version and exit |
+
+#### Log Pattern Matching
+
+The tool automatically parses common log formats and extracts:
+
+- Packet send/receive events
+- Log levels (INFO, WARNING, ERROR)
+- Source tags and timestamps
+- Custom patterns via exit conditions
+
+Supported formats:
+- Standard log format: `I (123) tag: message`
+- With timestamp prefix: `12:34:56.789 [A] I (123) tag: message`
+- Custom packet patterns: `Sending PKT_*`, `got X bytes, type=Y`
+
+#### Validation Mode
+
+Validation mode tracks communication between devices and provides metrics:
+
+- Packet send/receive counts per device
+- Line count and error statistics
+- Communication summary report
+
+Example output:
+```
+=== Network Validation Report ===
+Duration: 15.234s
+Packets seen: 156 / 100 (156.0%)
+
+Packet Flow:
+  Device A: 78 sent, 78 received
+  Device B: 78 sent, 78 received
+
+Latency (n=156):
+  Min: 8ms
+  Avg: 12ms
+  Max: 25ms
+
+Verdict: GOOD - Low latency communication
 ```
 
 ## Library
