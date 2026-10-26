@@ -23,6 +23,7 @@ var chipStubName = map[ChipType]string{
 	ChipESP32C6:     "esp32c6",
 	ChipESP32H2:     "esp32h2",
 	ChipESP32P4Rev1: "esp32p4-rev1",
+	ChipESP32P4Rev3: "esp32p4",
 }
 
 // stubJSON mirrors the JSON structure of the esptool stub flasher files.
