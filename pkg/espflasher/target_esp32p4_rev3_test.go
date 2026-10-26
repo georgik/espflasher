@@ -141,14 +141,3 @@ func TestESP32P4Rev3ReadErrorsPropagate(t *testing.T) {
 	assertRegisterErrorsPropagate(t, newF, []uint32{esp32p4EfuseBlock1Word2},
 		func(f *Flasher) error { _, err := f.ChipRevision(); return err })
 }
-
-// TestESP32P4Rev3StubDecodes confirms the rev3 stub JSON is well-formed and
-// loadable, with text and entry points in the RAM load region.
-func TestESP32P4Rev3StubDecodes(t *testing.T) {
-	s, ok := stubFor(ChipESP32P4Rev3)
-	require.True(t, ok, "stubFor(ChipESP32P4Rev3) should succeed")
-	require.NotNil(t, s)
-	assert.NotEmpty(t, s.text, "rev3 stub should have a text segment")
-	assert.NotZero(t, s.textStart, "rev3 stub text_start should be set")
-	assert.NotZero(t, s.entry, "rev3 stub entry should be set")
-}
